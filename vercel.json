@@ -10,10 +10,5 @@
       "src": "/(.*)",
       "dest": "main.py"
     }
-  ],
-  "env": {
-    "APP_NAME": "BankApp",
-    "ENVIRONMENT": "production",
-    "DEBUG": "False"
-  }
+  ]
 }
