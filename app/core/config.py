@@ -1,0 +1,41 @@
+from typing import Optional, List
+from pydantic_settings import BaseSettings
+from pydantic import Field
+
+class Settings(BaseSettings):
+    APP_NAME: str = Field(default="BankApp", env="APP_NAME")
+    APP_VERSION: str = Field(default="1.0.0", env="APP_VERSION")
+    DEBUG: bool = Field(default=True, env="DEBUG")
+    SECRET_KEY: str = Field(default="change-me", env="SECRET_KEY")
+    ENVIRONMENT: str = Field(default="development", env="ENVIRONMENT")
+    DATABASE_URL: str = Field(..., env="DATABASE_URL")
+    DATABASE_URL_ASYNC: str = Field(..., env="DATABASE_URL_ASYNC")
+    REDIS_URL: str = Field(default="redis://localhost:6379/0", env="REDIS_URL")
+    JWT_SECRET_KEY: str = Field(default="change-me-jwt", env="JWT_SECRET_KEY")
+    JWT_ALGORITHM: str = Field(default="HS256", env="JWT_ALGORITHM")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, env="ACCESS_TOKEN_EXPIRE_MINUTES")
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7, env="REFRESH_TOKEN_EXPIRE_DAYS")
+    SMTP_HOST: str = Field(default="smtp.gmail.com", env="SMTP_HOST")
+    SMTP_PORT: int = Field(default=587, env="SMTP_PORT")
+    SMTP_USER: str = Field(default="", env="SMTP_USER")
+    SMTP_PASSWORD: str = Field(default="", env="SMTP_PASSWORD")
+    SMTP_FROM: str = Field(default="noreply@bankapp.com", env="SMTP_FROM")
+    TWILIO_ACCOUNT_SID: str = Field(default="", env="TWILIO_ACCOUNT_SID")
+    TWILIO_AUTH_TOKEN: str = Field(default="", env="TWILIO_AUTH_TOKEN")
+    TWILIO_PHONE_NUMBER: str = Field(default="", env="TWILIO_PHONE_NUMBER")
+    FIREBASE_CREDENTIALS_PATH: str = Field(default="", env="FIREBASE_CREDENTIALS_PATH")
+    STORAGE_TYPE: str = Field(default="local", env="STORAGE_TYPE")
+    STORAGE_PATH: str = Field(default="./uploads", env="STORAGE_PATH")
+    AWS_ACCESS_KEY_ID: str = Field(default="", env="AWS_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY: str = Field(default="", env="AWS_SECRET_ACCESS_KEY")
+    AWS_BUCKET_NAME: str = Field(default="", env="AWS_BUCKET_NAME")
+    AWS_REGION: str = Field(default="us-east-1", env="AWS_REGION")
+    ENCRYPTION_KEY: str = Field(default="change-me-32-byte-key-here-xx", env="ENCRYPTION_KEY")
+    RATE_LIMIT_PER_MINUTE: int = Field(default=60, env="RATE_LIMIT_PER_MINUTE")
+    RATE_LIMIT_PER_HOUR: int = Field(default=1000, env="RATE_LIMIT_PER_HOUR")
+    SUPER_ADMIN_EMAIL: str = Field(default="admin@bankapp.com", env="SUPER_ADMIN_EMAIL")
+    SUPER_ADMIN_PASSWORD: str = Field(default="Admin123!@#", env="SUPER_ADMIN_PASSWORD")
+    CORS_ORIGINS: List[str] = Field(default=["*"], env="CORS_ORIGINS")
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "case_sensitive": True}
+
+settings = Settings()
