@@ -3339,3 +3339,431 @@ URL.revokeObjectURL(url);
 - **CSV export always exports latest 10,000 rows** — no date or admin filter. For filtered exports, build a client-side CSV generator from the filtered list data.
 - **`before_value` and `after_value` are JSON objects** — display them as a collapsible JSON diff viewer per row. Both are `null` on most current entries.
 - **`created_by` on reports is hardcoded `"admin"`** — will be the actual admin's UUID once auth middleware is active.
+
+
+---
+
+## PHASE 21 — System Settings, Notifications & Announcements
+
+> All Phase 21 endpoints are **fully implemented and registered** — callable right now.
+
+---
+
+### Endpoint Status
+
+| Endpoint | Status |
+|---|---|
+| `GET /admin/system` | ✅ Live — all settings as key-value object |
+| `PUT /admin/system` | ✅ Live — upsert any setting key |
+| `GET /admin/system/email` | ✅ Live |
+| `PUT /admin/system/email/{id}` | ✅ Live |
+| `GET /admin/system/sms` | ✅ Live |
+| `PUT /admin/system/sms/{id}` | ✅ Live |
+| `GET /admin/system/push` | ✅ Live |
+| `PUT /admin/system/push/{id}` | ✅ Live |
+| `GET /admin/system/legal` | ⚠️ Stub — returns `{"configured": true, "type": "legal"}` |
+| `PUT /admin/system/legal` | ⚠️ Stub — returns success, saves nothing |
+| `GET /admin/system/api-keys` | ⚠️ Stub — returns `{"configured": true, "type": "api_keys"}` |
+| `PUT /admin/system/api-keys` | ⚠️ Stub — returns success, saves nothing |
+| `GET /admin/system/webhooks` | ⚠️ Stub — returns `{"configured": true, "type": "webhooks"}` |
+| `PUT /admin/system/webhooks` | ⚠️ Stub — returns success, saves nothing |
+| `GET /admin/system/security` | ⚠️ Stub — returns `{"configured": true, "type": "security"}` |
+| `PUT /admin/system/security` | ⚠️ Stub — returns success, saves nothing |
+| `GET /admin/system/kyc` | ⚠️ Stub — returns `{"configured": true, "type": "kyc_settings"}` |
+| `PUT /admin/system/kyc` | ⚠️ Stub — returns success, saves nothing |
+| `POST /admin/notifications/send` | ✅ Live — sends to one user or all active users |
+| `GET /admin/notifications/templates` | ⚠️ Stub — hardcoded single template |
+| `GET /admin/notifications/history` | ✅ Live — paginated, all notifications |
+| `GET /admin/announcements` | ✅ Live |
+| `POST /admin/announcements` | ✅ Live — auto-published on creation |
+| `PUT /admin/announcements/{id}` | ✅ Live |
+
+---
+
+## SECTION A — System Settings
+
+### A1. Get All System Settings
+
+```
+GET /api/v1/admin/system
+```
+
+Returns all rows from the `system_settings` table as a flat key-value object.
+
+Success response `data`:
+```json
+{
+  "app_name": "BankApp",
+  "support_email": "support@bankapp.com",
+  "maintenance_mode": "false",
+  "max_login_attempts": "5",
+  "session_timeout_minutes": "30"
+}
+```
+
+The response is dynamic — whatever keys exist in the DB are returned. On a fresh deployment with no settings seeded, this returns `{}`.
+
+---
+
+### A2. Update / Create System Setting
+
+```
+PUT /api/v1/admin/system
+```
+
+Upserts a single key-value pair. If the key exists, updates it. If not, creates it.
+
+Request body:
+```json
+{
+  "key": "maintenance_mode",
+  "value": "true",
+  "description": "Toggle maintenance mode on/off"
+}
+```
+
+- `key`: the setting key string, required
+- `value`: always a string — booleans as `"true"/"false"`, numbers as `"5"`, etc.
+- `description`: optional, stored for admin reference
+
+```json
+{ "success": true, "message": "maintenance_mode updated" }
+```
+
+> **Settings are not enforced.** Values stored here do not currently affect system behaviour — there is no middleware reading `maintenance_mode` to block requests, no code reading `max_login_attempts` to apply lockout (that value is still hardcoded in the auth service). This table is the infrastructure for centralised configuration — connections to actual behaviour will be added in future updates. Store values here for future wiring.
+
+---
+
+## SECTION B — Template Management
+
+### B1. Email Templates
+
+```
+GET  /api/v1/admin/system/email
+PUT  /api/v1/admin/system/email/{template_id}
+```
+
+**GET** — list all email templates (name + subject only, body excluded from list):
+```json
+[
+  { "id": "uuid", "name": "deposit_approved", "subject": "Your deposit has been approved", "is_active": true },
+  { "id": "uuid", "name": "password_reset", "subject": "Reset your password", "is_active": true },
+  { "id": "uuid", "name": "welcome", "subject": "Welcome to BankApp", "is_active": true }
+]
+```
+
+**PUT `/{template_id}`** — update template. All optional:
+```json
+{
+  "subject": "Your deposit of {{amount}} has been approved!",
+  "body": "Dear {{first_name}},\n\nYour deposit of {{amount}} via {{method}} has been approved and credited to your account.\n\nReference: {{reference}}\n\nBankApp Team",
+  "is_active": true
+}
+```
+
+> `body` supports `{{variable}}` template placeholders. The available variables depend on the template type — they are defined in the email sending code, not validated here. Changing a template body takes effect on the next email of that type sent by the system.
+
+---
+
+### B2. SMS Templates
+
+```
+GET  /api/v1/admin/system/sms
+PUT  /api/v1/admin/system/sms/{template_id}
+```
+
+**GET** — list all SMS templates (name only, body excluded from list):
+```json
+[
+  { "id": "uuid", "name": "otp_verification", "is_active": true },
+  { "id": "uuid", "name": "login_alert", "is_active": true }
+]
+```
+
+**PUT `/{template_id}`** — update SMS template. All optional:
+```json
+{
+  "body": "Your BankApp verification code is {{code}}. Valid for 10 minutes. Do not share this code.",
+  "is_active": true
+}
+```
+
+SMS templates have `body` only (no subject — SMS has no subject line).
+
+---
+
+### B3. Push Notification Templates
+
+```
+GET  /api/v1/admin/system/push
+PUT  /api/v1/admin/system/push/{template_id}
+```
+
+**GET** — list all push templates:
+```json
+[
+  { "id": "uuid", "name": "deposit_approved", "title": "Deposit Approved", "is_active": true },
+  { "id": "uuid", "name": "security_alert", "title": "Security Alert", "is_active": true }
+]
+```
+
+**PUT `/{template_id}`** — update push template. All optional:
+```json
+{
+  "title": "Your deposit is ready!",
+  "body": "{{amount}} has been credited to your account.",
+  "is_active": true
+}
+```
+
+Push templates have both `title` (notification header) and `body` (notification text).
+
+---
+
+### B4. Stub System Settings (non-functional)
+
+The following endpoints are registered and return success, but **do not read from or write to any database table** — they return hardcoded placeholder responses:
+
+| URL | GET response |
+|---|---|
+| `GET /admin/system/legal` | `{"configured": true, "type": "legal"}` |
+| `GET /admin/system/api-keys` | `{"configured": true, "type": "api_keys"}` |
+| `GET /admin/system/webhooks` | `{"configured": true, "type": "webhooks"}` |
+| `GET /admin/system/security` | `{"configured": true, "type": "security"}` |
+| `GET /admin/system/kyc` | `{"configured": true, "type": "kyc_settings"}` |
+
+All corresponding PUT endpoints accept any JSON body and return `{"success": true, "message": "X updated"}` without saving anything. Build the UI sections for these now — real implementation will come in a future update. Show a "Configuration pending" badge on each stub section.
+
+---
+
+## SECTION C — Admin Notifications
+
+### C1. Send Notification
+
+```
+POST /api/v1/admin/notifications/send
+```
+
+Send an in-app notification to a specific user or broadcast to all active users.
+
+**Send to one user:**
+```json
+{
+  "user_id": "uuid",
+  "title": "Important Account Update",
+  "message": "Your KYC documents have been approved. Your account is now fully verified.",
+  "notification_type": "admin",
+  "send_to_all": false
+}
+```
+
+**Broadcast to all active users:**
+```json
+{
+  "user_id": null,
+  "title": "Scheduled Maintenance",
+  "message": "BankApp will be undergoing scheduled maintenance on June 25th from 2-4 AM EST.",
+  "notification_type": "system",
+  "send_to_all": true
+}
+```
+
+- `user_id`: required if `send_to_all` is `false`
+- `title`: notification header text
+- `message`: notification body text
+- `notification_type`: any string — used for icon mapping on user side. Common values: `"admin"`, `"system"`, `"security"`, `"deposit"`, `"withdrawal"`
+- `send_to_all`: `true` = send to every active user (queries all `User.is_active == true` records)
+
+```json
+{ "success": true, "message": "Notification sent" }
+```
+
+> **Broadcast can be slow** — when `send_to_all: true`, the endpoint loops through every active user and creates individual `Notification` rows. For a large user base this can time out on Vercel's serverless functions (10-second limit). Use broadcast sparingly or for small user bases. A queue-based broadcast system will replace this in a future update.
+
+> **Only in-app notifications are sent** — this creates rows in the `notifications` table. No push, email, or SMS is sent. Users see it in their in-app notification centre on next load.
+
+---
+
+### C2. Notification Templates (stub)
+
+```
+GET /api/v1/admin/notifications/templates
+```
+
+Returns a hardcoded single template. No DB query:
+
+```json
+[
+  {
+    "name": "deposit_approved",
+    "subject": "Deposit Approved",
+    "body": "Your deposit of {{amount}} has been approved."
+  }
+]
+```
+
+This is a placeholder — the real template list will pull from the `notification_templates` table once wired. Do not use this for actual template management — use the email/SMS/push template endpoints instead.
+
+---
+
+### C3. Notification History
+
+```
+GET /api/v1/admin/notifications/history?page=1&per_page=20
+```
+
+Returns all notifications across all users system-wide, newest first. No filter by user in the current implementation.
+
+Query params: `page` (default 1), `per_page` (1–100, default 20)
+
+Success response `data` (array):
+```json
+[
+  {
+    "id": "uuid",
+    "title": "Deposit Approved",
+    "notification_type": "deposit",
+    "is_read": true,
+    "created_at": "2026-06-20T14:30:00"
+  },
+  {
+    "id": "uuid",
+    "title": "Scheduled Maintenance",
+    "notification_type": "system",
+    "is_read": false,
+    "created_at": "2026-06-20T10:00:00"
+  }
+]
+```
+
+> `user_id`, `message`, `reference_type`, and `reference_id` are not returned in this history view. It's a lightweight list for monitoring send volume and read rates. A detailed notification view endpoint will be added in a future update.
+
+---
+
+## SECTION D — Announcements
+
+Announcements are system-wide banners shown to users in the app. They are distinct from notifications — announcements appear as a persistent banner or feed item, not in the notification bell.
+
+### D1. List Announcements
+
+```
+GET /api/v1/admin/announcements
+```
+
+Returns all announcements, newest first.
+
+Success response `data` (array):
+```json
+[
+  {
+    "id": "uuid",
+    "title": "New Feature: Crypto Deposits",
+    "priority": "high",
+    "is_published": true,
+    "created_at": "2026-06-20T09:00:00"
+  },
+  {
+    "id": "uuid",
+    "title": "Scheduled Maintenance Notice",
+    "priority": "normal",
+    "is_published": false,
+    "created_at": "2026-06-18T10:00:00"
+  }
+]
+```
+
+`content` is not returned in the list — only in the edit endpoint (via the model). Fetch a specific announcement's content using `PUT` first to pre-fill the edit form.
+
+---
+
+### D2. Create Announcement
+
+```
+POST /api/v1/admin/announcements
+```
+
+Request body:
+```json
+{
+  "title": "System Update Complete",
+  "content": "We have completed our scheduled system update. All services are now fully operational.",
+  "priority": "normal"
+}
+```
+
+- `title`: required
+- `content`: required, full HTML or plain text body
+- `priority`: `"normal"`, `"high"`, or `"urgent"` — used by user app for visual styling
+
+**Announcements are immediately published on creation** (`is_published: true` set automatically). There is no draft state — once created, it is live on the user side.
+
+Success response `data`:
+```json
+{ "id": "uuid" }
+```
+
+> `created_by` is not set (always null) until admin auth middleware is wired in.
+
+---
+
+### D3. Edit Announcement
+
+```
+PUT /api/v1/admin/announcements/{announcement_id}
+```
+
+All fields optional:
+```json
+{
+  "title": "Updated: System Maintenance",
+  "content": "The maintenance window has been extended. Expected completion: 5 AM EST.",
+  "is_published": false,
+  "priority": "urgent"
+}
+```
+
+- Setting `is_published: false` unpublishes the announcement — it disappears from the user app
+- Setting `is_published: true` re-publishes it
+
+```json
+{ "success": true, "message": "Announcement updated" }
+```
+
+> There is no delete announcement endpoint. To remove an announcement from user view, set `is_published: false`.
+
+---
+
+### Phase 21 Screens to Build
+
+**System settings:**
+- [ ] System settings key-value editor — list all keys, inline value editing
+- [ ] Email templates list — with edit modal showing subject + body textarea
+- [ ] SMS templates list — with edit modal showing body textarea
+- [ ] Push templates list — with edit modal showing title + body fields
+- [ ] Legal / API keys / Webhooks / Security / KYC sections — show "Configuration pending" badge (stubs)
+
+**Notifications:**
+- [ ] Send notification form — user search / "send to all" toggle, title, message, type
+- [ ] Notification history table — paginated system-wide log
+- [ ] Broadcast warning modal — "This will send to X active users. Confirm?"
+
+**Announcements:**
+- [ ] Announcements list — with published/draft badge, priority badge
+- [ ] Create announcement form — title, content (rich text editor), priority
+- [ ] Edit announcement form — pre-filled, with publish/unpublish toggle
+- [ ] "Unpublish" replaces delete — no delete endpoint exists
+
+---
+
+### Key Notes for Phase 21
+
+- **System settings are a key-value store** — both GET and PUT work on the same `system_settings` table. The PUT creates a new row if the key doesn't exist. Settings currently have no effect on system behavior — build the UI now, behavior comes later.
+- **`value` is always a string** — store booleans as `"true"/"false"`, numbers as `"5"`, etc. Parse on read.
+- **Email/SMS/push template list endpoints omit `body` from the response** — GET returns metadata only. To show or edit the body, your form will need to send the full body in the PUT — you can't pre-fill from a GET. Workaround: seed template bodies into the UI as constants or add a `GET /{id}` detail endpoint.
+- **Legal, API keys, webhooks, security, and KYC endpoints are stubs** — they accept any body and return success without saving. Confirmed by reading every line of these files — they have zero DB interaction.
+- **`send_to_all: true` creates one DB row per active user** — potentially thousands of inserts in a single synchronous request. Will time out on large datasets. Add a backend user count warning before allowing broadcast.
+- **Announcements publish immediately on create** — there is no `is_published: false` on creation. If you want a draft state, create with published then immediately PUT `is_published: false`.
+- **No announcement delete endpoint** — use `is_published: false` to hide from users.
+- **Notification history has no `user_id` filter** — shows all notifications system-wide. Can't filter by which user received it yet.
+- **The notification templates endpoint is a hardcoded stub** — it returns one fake template and ignores the DB entirely. Don't build a template editor based on this endpoint.
+- **`priority` on announcements** — `"normal"`, `"high"`, `"urgent"`. Use these to drive visual styling on the user app side (normal = blue, high = orange, urgent = red banner).

@@ -16,4 +16,4 @@ async def adjust_balance(user_id: str, data: BalanceAdjustRequest, db: AsyncSess
     if not a: return APIResponse(success=False, message="Account not found")
     a.balance += data.amount; a.available_balance += data.amount
     await db.commit()
-    return APIResponse(success=True, message=f"Balance adjusted by \${data.amount:,.2f}")
+    return APIResponse(success=True, message=f"Balance adjusted by ${data.amount:,.2f}")
