@@ -340,3 +340,16 @@ api_router.include_router(admin_cards_all, prefix="/admin/cards", tags=["Admin C
 api_router.include_router(admin_cards_issue, prefix="/admin/cards", tags=["Admin Cards"])
 api_router.include_router(admin_cards_manage, prefix="/admin/cards", tags=["Admin Cards"])
 api_router.include_router(admin_cards_limits, prefix="/admin/cards", tags=["Admin Cards"])
+
+from app.api.v1.endpoints.admin.reports.builder import router as reports_builder
+from app.api.v1.endpoints.admin.reports.list import router as reports_list
+from app.api.v1.endpoints.admin.reports.generate import router as reports_save
+from app.api.v1.endpoints.admin.reports.schedule import router as reports_schedule
+from app.api.v1.endpoints.admin.audit.list import router as audit_list
+from app.api.v1.endpoints.admin.audit.export import router as audit_export
+api_router.include_router(reports_builder, prefix="/admin/reports", tags=["Admin Reports"])
+api_router.include_router(reports_list, prefix="/admin/reports", tags=["Admin Reports"])
+api_router.include_router(reports_save, prefix="/admin/reports", tags=["Admin Reports"])
+api_router.include_router(reports_schedule, prefix="/admin/reports", tags=["Admin Reports"])
+api_router.include_router(audit_list, prefix="/admin/audit", tags=["Admin Audit"])
+api_router.include_router(audit_export, prefix="/admin/audit", tags=["Admin Audit"])

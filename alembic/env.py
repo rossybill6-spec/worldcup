@@ -33,6 +33,8 @@ from app.models.admin_permission import AdminPermission; from app.models.admin_s
 from app.models.admin_activity_log import AdminActivityLog
 from app.models.system_config import SystemConfig
 from app.models.fee_schedule import FeeSchedule; from app.models.interest_rate import InterestRate
+from app.models.report import Report; from app.models.report_schedule import ReportSchedule
+from app.models.audit_log import AuditLog
 config = context.config; config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 if config.config_file_name is not None: fileConfig(config.config_file_name)
 target_metadata = Base.metadata

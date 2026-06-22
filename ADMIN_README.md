@@ -2582,3 +2582,422 @@ Success response `data` (array):
 - **Activity log only shows login actions right now** — other admin actions (approvals, edits, etc.) are not yet instrumented. Show the log as-is with a note that full logging is in progress.
 - **Super admins cannot be deleted** — the delete endpoint queries `Admin.is_super_admin == False` and returns an error if the target is a super admin. Hide the delete button for super admins in the UI.
 - **Permission matrix is computed live** — it runs a DB query for every role on each call. For large role lists, this may be slow. Cache the matrix client-side and only refetch when permissions are changed.
+
+
+---
+
+## PHASE 19 — Fees, Interest Rates & Card Management
+
+> Base paths:
+> - `https://worldcup-orcin-chi.vercel.app/api/v1/admin/fees/...`
+> - `https://worldcup-orcin-chi.vercel.app/api/v1/admin/interest/...`
+> - `https://worldcup-orcin-chi.vercel.app/api/v1/admin/cards/...`
+>
+> All Phase 19 endpoints are **fully implemented and registered** — callable right now.
+
+---
+
+### Endpoint Status
+
+| Endpoint | Status |
+|---|---|
+| `GET /admin/fees/list` | ✅ Live |
+| `PUT /admin/fees/{fee_id}` | ✅ Live — limited fields only |
+| `POST /admin/fees/create` | ✅ Live |
+| `GET /admin/interest/list` | ✅ Live |
+| `PUT /admin/interest/{rate_id}` | ✅ Live |
+| `GET /admin/cards/all` | ✅ Live — paginated system-wide card list |
+| `POST /admin/cards/issue` | ✅ Live — issues virtual card to any user |
+| `POST /admin/cards/{card_id}/freeze` | ✅ Live |
+| `POST /admin/cards/{card_id}/cancel` | ✅ Live |
+| `PUT /admin/cards/{card_id}/limits` | ✅ Live |
+
+> **`fee_service.py` and `interest_service.py` are both empty files.** The fee and interest endpoints work by querying the DB models directly — no service layer is used. The interest calculation task (`interest_tasks.py`) and fee application task (`fee_tasks.py`) exist in the tasks folder but their implementation status is unknown — interest accrual is not automatically applied to user accounts in the current build.
+
+---
+
+## SECTION A — Fee Management
+
+### A1. List All Fees
+
+```
+GET /api/v1/admin/fees/list
+```
+
+Returns all fee schedules ordered by `category` then `name`.
+
+Success response `data` (array):
+```json
+[
+  {
+    "id": "uuid",
+    "name": "Monthly Maintenance Fee",
+    "slug": "monthly_maintenance",
+    "amount": 0.0,
+    "fee_type": "flat",
+    "is_enabled": false,
+    "category": "account",
+    "description": "Monthly account maintenance fee"
+  },
+  {
+    "id": "uuid",
+    "name": "Domestic Wire Fee",
+    "slug": "wire_domestic",
+    "amount": 25.0,
+    "fee_type": "flat",
+    "is_enabled": true,
+    "category": "transfer",
+    "description": "Fee for domestic wire transfers"
+  },
+  {
+    "id": "uuid",
+    "name": "International Wire Fee",
+    "slug": "wire_international",
+    "amount": 35.0,
+    "fee_type": "flat",
+    "is_enabled": true,
+    "category": "transfer",
+    "description": "Fee for international wire transfers"
+  }
+]
+```
+
+**Fee type values:**
+
+| `fee_type` | Meaning |
+|---|---|
+| `flat` | Fixed dollar amount regardless of transaction size |
+| `percent` | Percentage of the transaction amount |
+
+**Fee categories** (free-text field — these are the expected values from `scripts/seed_fees.py`):
+
+| Category | Fee types in this group |
+|---|---|
+| `account` | Monthly maintenance, overdraft, returned payment |
+| `transfer` | Domestic wire, international wire, ACH |
+| `card` | Card payout fee, ATM out-of-network |
+| `deposit` | Check deposit, cash deposit |
+| `other` | Any custom fees |
+
+> **Fees are informational only** — the `is_enabled` flag and `amount` are stored and visible to the admin but the fee application engine is not connected to transactions yet. Wire transfer fees ($25 domestic, $35 international) are still hardcoded in the transfer service, not read from this table. This table will become the live source of truth once the fee engine is completed.
+
+---
+
+### A2. Update Fee
+
+```
+PUT /api/v1/admin/fees/{fee_id}
+```
+
+**Only three fields can be updated** — the `UpdateFeeRequest` schema only accepts these:
+
+```json
+{
+  "amount": 12.00,
+  "is_enabled": true,
+  "description": "Updated: $12/month for premium accounts"
+}
+```
+
+- `amount`: new fee amount (float)
+- `is_enabled`: `true` = fee is active, `false` = waived
+- `description`: free text for admin reference
+
+To update `name`, `slug`, `fee_type`, or `category` — use the direct DB or wait for a future update that expands this endpoint.
+
+```json
+{ "success": true, "message": "Monthly Maintenance Fee updated" }
+```
+
+---
+
+### A3. Create New Fee
+
+```
+POST /api/v1/admin/fees/create
+```
+
+Request body:
+```json
+{
+  "name": "Crypto Deposit Fee",
+  "slug": "crypto_deposit",
+  "amount": 2.50,
+  "fee_type": "flat",
+  "category": "deposit",
+  "description": "Fee applied to crypto deposits upon approval"
+}
+```
+
+Required: `name` (min 2 chars), `slug` (must be unique across all fees)
+Optional: `amount` (default `0.0`), `fee_type` (default `"flat"`), `category`, `description`
+
+`is_enabled` defaults to `true` on creation.
+
+Success response `data`:
+```json
+{ "id": "uuid" }
+```
+
+> `slug` must be unique — there is no uniqueness pre-check in the endpoint, only a DB constraint. Validate uniqueness client-side by checking the existing list before creating.
+
+---
+
+## SECTION B — Interest Rate Management
+
+### B1. List Interest Rates
+
+```
+GET /api/v1/admin/interest/list
+```
+
+Returns all interest rate tiers ordered by `account_type`.
+
+Success response `data` (array):
+```json
+[
+  {
+    "id": "uuid",
+    "account_type": "checking",
+    "rate": 0.0,
+    "min_balance": 0.0,
+    "max_balance": null,
+    "is_enabled": false,
+    "description": "Standard checking — no interest"
+  },
+  {
+    "id": "uuid",
+    "account_type": "savings",
+    "rate": 0.5,
+    "min_balance": 0.0,
+    "max_balance": 10000.0,
+    "is_enabled": true,
+    "description": "Savings standard tier — 0.50% APY"
+  },
+  {
+    "id": "uuid",
+    "account_type": "savings",
+    "rate": 1.0,
+    "min_balance": 10000.0,
+    "max_balance": null,
+    "is_enabled": true,
+    "description": "Savings premium tier — 1.00% APY on balances over $10,000"
+  }
+]
+```
+
+**Tiered rates** are supported — multiple rows for the same `account_type` with different `min_balance`/`max_balance` ranges. The interest engine applies the matching tier based on the account's current balance.
+
+`max_balance: null` means "no upper limit" — applies to all balances above `min_balance`.
+
+> **Interest is not currently applied automatically.** The `interest_service.py` file is empty. Rates stored here are the configured target rates — they will be applied by a scheduled task once the interest calculation engine is implemented.
+
+### B2. Update Interest Rate
+
+```
+PUT /api/v1/admin/interest/{rate_id}
+```
+
+All fields optional:
+```json
+{
+  "rate": 0.75,
+  "min_balance": 0.0,
+  "max_balance": 25000.0,
+  "is_enabled": true
+}
+```
+
+- `rate`: APY as a float percentage — `0.5` = 0.50%, `1.0` = 1.00%
+- `min_balance`: minimum account balance for this tier to apply
+- `max_balance`: maximum balance for this tier (`null` = unlimited)
+- `is_enabled`: `false` disables this tier entirely
+
+```json
+{ "success": true, "message": "Rate updated" }
+```
+
+> Savings account interest rate is currently hardcoded as `0.50` in `AccountService.create_savings_account()` — it is set directly on the `Account.interest_rate` field at creation time and not read from this table. Changes here will reflect in the interest calculation engine when it is built, but do not retroactively change existing account `interest_rate` fields.
+
+---
+
+## SECTION C — System-Wide Card Management
+
+These endpoints give admins direct access to all cards across all users — no `user_id` scoping needed.
+
+### C1. List All Cards
+
+```
+GET /api/v1/admin/cards/all?page=1&per_page=20
+```
+
+All cards in the system, newest first, excluding deleted cards.
+
+Query params: `page` (default 1), `per_page` (1–100, default 20)
+
+Success response `data`:
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "user_id": "uuid",
+      "card_type": "virtual",
+      "last_four": "4521",
+      "status": "active",
+      "is_frozen": false,
+      "created_at": "2026-06-01T08:00:00"
+    },
+    {
+      "id": "uuid",
+      "user_id": "uuid",
+      "card_type": "physical",
+      "last_four": "8834",
+      "status": "reported_lost",
+      "is_frozen": true,
+      "created_at": "2026-05-15T10:00:00"
+    }
+  ],
+  "total": 1847,
+  "page": 1
+}
+```
+
+Use `user_id` to link each card to the user detail page.
+
+> `cardholder_name`, `expiry`, and `cvv` are not returned in this list — only the card management fields. Use `GET /admin/users/{user_id}` to see full card details per user.
+
+---
+
+### C2. Issue Card to User
+
+```
+POST /api/v1/admin/cards/issue
+```
+
+Creates a new virtual card for any user.
+
+Request body:
+```json
+{
+  "user_id": "uuid",
+  "account_id": "uuid-of-users-checking-account",
+  "cardholder_name": "JOHN DOE"
+}
+```
+
+All three fields are required. Get `user_id` and `account_id` from the user detail endpoint.
+
+Success response `data` — **returns full card details including PIN** (same as the user-side create card response):
+```json
+{
+  "card_id": "uuid",
+  "card_number": "4532819274651234",
+  "expiry": "06/29",
+  "cvv": "847",
+  "pin": "3921",
+  "last_four": "1234",
+  "card_number_masked": "•••• •••• •••• 1234"
+}
+```
+
+⚠️ **The full card number, CVV, and PIN are returned in this response.** Store them securely or show them once to the admin to pass to the user. This data is not retrievable again after this call.
+
+Use this when:
+- A user's card was cancelled and needs a replacement
+- A new user account needs a card manually (auto-creation failed)
+- Issuing a card to a user who doesn't have one
+
+---
+
+### C3. Freeze Card
+
+```
+POST /api/v1/admin/cards/{card_id}/freeze
+```
+
+No request body. Sets `is_frozen = true`.
+
+```json
+{ "success": true, "message": "Card frozen" }
+```
+
+No user ownership check — any `card_id` can be frozen by admin.
+
+---
+
+### C4. Cancel Card
+
+```
+POST /api/v1/admin/cards/{card_id}/cancel
+```
+
+No request body. Sets `status = "cancelled"` and `is_frozen = true`. Permanent.
+
+```json
+{ "success": true, "message": "Card cancelled" }
+```
+
+> Unlike the user-side cancel (Phase 15), this endpoint does **not** set `is_deleted = true` — the card record stays visible in `GET /admin/cards/all`. Cancellation is final from the user's perspective but the record persists for audit purposes.
+
+---
+
+### C5. Update Card Limits
+
+```
+PUT /api/v1/admin/cards/{card_id}/limits
+```
+
+All fields optional:
+```json
+{
+  "daily_spending_limit": 10000.00,
+  "per_transaction_limit": 5000.00,
+  "atm_withdrawal_limit": 1000.00
+}
+```
+
+Changes apply immediately — the user's card will enforce the new limits on their next transaction.
+
+```json
+{ "success": true, "message": "Card limits updated" }
+```
+
+No user ownership check — any `card_id` can be updated by admin.
+
+---
+
+### Phase 19 Screens to Build
+
+**Fees section:**
+- [ ] Fee schedule list — table with name, slug, amount, type, category, enabled toggle
+- [ ] Edit fee inline or modal — amount, enabled toggle, description only
+- [ ] Create new fee form — name, slug, amount, fee_type, category, description
+- [ ] Slug uniqueness check before submit
+
+**Interest rates section:**
+- [ ] Interest rates list — grouped by account_type, showing tier ranges
+- [ ] Edit rate form — rate (APY %), min_balance, max_balance, enabled toggle
+- [ ] Tier visualization — show balance ranges as a stacked bar or table
+
+**Card management section:**
+- [ ] System-wide cards table — paginated, with user_id link, status badge, frozen indicator
+- [ ] Issue card form — user selector + account selector + cardholder name
+- [ ] Issue card result modal — show card number, CVV, PIN one time
+- [ ] Freeze/cancel card buttons with confirmation dialog
+- [ ] Card limits editor — three limit fields per card
+
+---
+
+### Key Notes for Phase 19
+
+- **Fees are informational only** — `amount` and `is_enabled` are stored but the fee application engine is not connected to transactions. Wire fees are still hardcoded in the transfer service. Build the fee management UI now — it will go live when the engine is wired.
+- **`UpdateFeeRequest` only accepts `amount`, `is_enabled`, and `description`** — you cannot change `name`, `slug`, `fee_type`, or `category` through the edit endpoint. Only the three fields.
+- **Fee `slug` must be unique** — no server-side pre-check, just a DB constraint. Validate client-side.
+- **Interest rates are not applied automatically** — `interest_service.py` is empty. The rates table is the configuration; the calculation engine is not yet built.
+- **Savings account `interest_rate` field (0.50) is hardcoded at creation** — changes to the interest rate table do not retroactively change existing accounts' `interest_rate` column. The rate table drives future calculations only.
+- **`GET /admin/interest/list` can return multiple rows for the same `account_type`** — these are tiers. Display them as a tiered table grouped by account type.
+- **`rate` is APY as a float** — `0.5` means 0.50% APY. Display as `rate.toFixed(2) + "% APY"`.
+- **Admin card issue returns full card details including PIN** — log this in the admin activity (manually, since auto-logging isn't wired) and treat the response as sensitive. Show once, do not store.
+- **Admin card cancel does not set `is_deleted`** — unlike Phase 15's user-level cancel. Cards cancelled by admin remain visible in the system-wide list with `status: "cancelled"`.
+- **No user ownership check on card freeze/cancel/limits** — any card ID works. Always source card IDs from the user detail page to ensure you're acting on the right user's card.
