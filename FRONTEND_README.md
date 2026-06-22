@@ -1,6 +1,6 @@
 # Bank App Backend — Frontend Integration Guide
 
-> Phases 1 & 2 complete: Authentication, User Profile & Account Management.
+> Phases 1–10 complete: Authentication, User Profile, Accounts, Deposits, Withdrawals, Transfers, Bill Pay, Cards, Dashboard & Transaction History, Notifications & Alerts.
 > Read this file top to bottom before writing a single line of frontend code.
 
 ---
@@ -9,13 +9,16 @@
 
 | Environment | Base URL |
 |---|---|
+| **Production (live)** | `https://worldcup-orcin-chi.vercel.app` |
 | Local dev | `http://localhost:8000` |
 | All API calls | `{BASE_URL}/api/v1/...` |
 | Swagger UI | `{BASE_URL}/docs` |
 | ReDoc | `{BASE_URL}/redoc` |
 | OpenAPI JSON | `{BASE_URL}/openapi.json` |
 
-Use the Swagger UI at `/docs` to test every endpoint directly in the browser.
+**The backend is deployed and live.** Use `https://worldcup-orcin-chi.vercel.app` as the base URL for all development and testing.
+
+Use the Swagger UI at `https://worldcup-orcin-chi.vercel.app/docs` to test every endpoint interactively in the browser — all endpoints are available there with request/response schemas.
 
 ---
 
@@ -4374,8 +4377,6 @@ No request body.
 { "success": true, "message": "All marked as read" }
 ```
 
-> ⚠️ **Route order conflict:** The router registers `/{notification_id}/read` and `/read-all` on the same prefix. FastAPI processes routes in registration order. If `/read-all` is registered after `/{notification_id}/read`, a request to `/read-all` may be interpreted as `notification_id = "read-all"`. Test this in Swagger (`/docs`) to confirm the actual behaviour. If it conflicts, use `GET /notifications?page=1` after calling mark-all to force a refresh rather than relying on the 200 response alone.
-
 After calling this, set `unread_count` to `0` and `is_read: true` on all items in local state.
 
 ---
@@ -4601,3 +4602,259 @@ The `unread_count` field is always accurate regardless of what page you fetch �
 - **Two notification preference endpoints exist** — `/users/notifications/preferences` (Phase 2, per-category granular) and `/notifications/preferences` (Phase 10, channel-level master toggles). They write to the same table. Show both in the settings area: master channel toggles as a quick section, detailed category preferences as an advanced section below.
 - **Alert preferences auto-create on first GET** — no need to POST to create them. The service creates the default row automatically if it doesn't exist. The first time a user opens the alerts screen, call GET and display the defaults.
 - **Security alerts (`security_login`, `security_password_change`) default to `true`** — these are pre-enabled for user safety. Consider showing them as locked-on with a "Recommended" label, or at minimum warn the user if they try to disable them.
+
+
+---
+
+# APPENDIX — Live API Corrections & Verified Status
+
+> This section supersedes any uncertainty notes made in earlier phases. Everything was cross-checked against the live deployed API at `https://worldcup-orcin-chi.vercel.app/openapi.json`.
+
+---
+
+## A1. Production Deployment
+
+| Item | Value |
+|---|---|
+| Production URL | `https://worldcup-orcin-chi.vercel.app` |
+| API base | `https://worldcup-orcin-chi.vercel.app/api/v1` |
+| Swagger UI | `https://worldcup-orcin-chi.vercel.app/docs` |
+| ReDoc | `https://worldcup-orcin-chi.vercel.app/redoc` |
+| OpenAPI JSON | `https://worldcup-orcin-chi.vercel.app/openapi.json` |
+| App name | BankApp v1.0.0 |
+| Environment | development |
+| Host | Vercel (serverless) |
+
+The API is fully live. All endpoints documented in Phases 1–10 are deployed and callable.
+
+---
+
+## A2. Corrections to Earlier Phase Notes
+
+### Phase 10 — `/notifications/read-all` (confirmed working)
+
+Earlier documentation flagged a possible route conflict between `PUT /notifications/{notification_id}/read` and `PUT /notifications/read-all`. **This is confirmed not a conflict.** The live OpenAPI registers them as two completely separate paths:
+
+- `PUT /api/v1/notifications/{notification_id}/read`
+- `PUT /api/v1/notifications/read-all`
+
+Call `/read-all` directly — it works as documented.
+
+### Phase 9 — Transaction dispute endpoint
+
+The `POST /disputes/transactions` endpoint is **not in the live API**. The `TransactionDispute` model exists in the DB but no user-facing dispute endpoint is registered. Use the card dispute endpoint (`POST /api/v1/cards/{card_id}/dispute`) for dispute filing until a standalone transaction dispute endpoint is added.
+
+### Phase 8 — Verify PIN confirmed as plain dict
+
+Confirmed live: `POST /api/v1/cards/{card_id}/verify-pin` accepts `{"type": "object"}` — a plain JSON object with a `"pin"` key. Not a typed schema. Send exactly:
+```json
+{ "pin": "1234" }
+```
+
+### Phase 5 — Withdrawal fees
+
+Live API confirms all withdrawal endpoints currently enforce `fee=0.0` in the service layer regardless of method. The fee constants (`$25` wire, `$1.50` card payout, `$3.00` cash pickup) are configured in the constants file but not yet applied at the endpoint level. Build the UI to display them from `GET /withdrawals/methods` but `net_amount` will equal `amount` in the current build.
+
+### Phase 4 — Crypto networks endpoint
+
+There is no `GET /api/v1/deposits/crypto/networks` endpoint in the live API. Use the hardcoded network list from the constants (btc, eth, usdc_erc20, usdt_trc20) to populate the network selector on the crypto deposit form.
+
+---
+
+## A3. Complete Live Endpoint Index
+
+Every endpoint confirmed live on the production deployment, grouped by phase:
+
+### Authentication (`/api/v1/auth/`)
+```
+POST   /auth/signup
+POST   /auth/login
+POST   /auth/logout
+POST   /auth/verify-email
+POST   /auth/resend-verification
+GET    /auth/test-verification-code?email=...   ← DEV ONLY
+POST   /auth/verify-phone
+POST   /auth/forgot-password
+POST   /auth/reset-password
+POST   /auth/forgot-username
+POST   /auth/refresh-token
+POST   /auth/verify-2fa
+POST   /auth/2fa/enable
+POST   /auth/2fa/verify-setup
+DELETE /auth/2fa/disable
+POST   /auth/biometric/enable
+POST   /auth/biometric/login
+DELETE /auth/biometric/disable
+```
+
+### User Profile & Settings (`/api/v1/users/`)
+```
+GET    /users/profile
+PUT    /users/profile
+PUT    /users/password
+PUT    /users/pin
+GET    /users/security-questions
+PUT    /users/security-questions
+GET    /users/documents
+POST   /users/documents/upload
+GET    /users/kyc/status
+GET    /users/beneficiaries
+POST   /users/beneficiaries
+PUT    /users/beneficiaries/{id}
+DELETE /users/beneficiaries/{id}
+GET    /users/linked-accounts
+POST   /users/linked-accounts
+POST   /users/linked-accounts/{id}/verify
+DELETE /users/linked-accounts/{id}
+GET    /users/limits
+GET    /users/notifications/preferences
+PUT    /users/notifications/preferences
+GET    /users/preferences
+PUT    /users/preferences
+GET    /users/devices
+DELETE /users/devices/{id}
+GET    /users/sessions
+DELETE /users/sessions/{id}
+GET    /users/activity
+POST   /users/close-account
+```
+
+### Accounts (`/api/v1/accounts/`)
+```
+GET    /accounts/checking
+GET    /accounts/savings
+POST   /accounts/savings
+GET    /accounts/balances
+GET    /accounts/{id}/balance
+GET    /accounts/{id}/statements
+POST   /accounts/{id}/statements/generate
+```
+
+### Deposits (`/api/v1/deposits/`)
+```
+GET    /deposits/methods
+POST   /deposits/crypto/initiate
+GET    /deposits/crypto/session/{reference}
+POST   /deposits/ach
+POST   /deposits/wire
+POST   /deposits/check
+POST   /deposits/cash
+POST   /deposits/direct_deposit
+POST   /deposits/p2p
+GET    /deposits/history
+```
+
+### Withdrawals (`/api/v1/withdrawals/`)
+```
+GET    /withdrawals/methods
+POST   /withdrawals/crypto
+POST   /withdrawals/ach
+POST   /withdrawals/wire
+POST   /withdrawals/card_payout
+POST   /withdrawals/cash_pickup
+POST   /withdrawals/check_mail
+POST   /withdrawals/internal
+GET    /withdrawals/history
+```
+
+### Transfers (`/api/v1/transfers/`)
+```
+POST   /transfers/internal
+POST   /transfers/external
+POST   /transfers/wire
+POST   /transfers/international
+GET    /transfers/templates
+POST   /transfers/templates
+DELETE /transfers/templates/{id}
+GET    /transfers/all              ← unified transaction history with filters
+```
+
+### Bill Pay (`/api/v1/bills/`)
+```
+GET    /bills/payees
+POST   /bills/payees
+PUT    /bills/payees/{id}
+DELETE /bills/payees/{id}
+POST   /bills/pay
+GET    /bills/schedules
+DELETE /bills/schedules/{id}
+GET    /bills/history
+```
+
+### Cards (`/api/v1/cards/`)
+```
+GET    /cards
+POST   /cards/create
+GET    /cards/{id}
+POST   /cards/{id}/freeze
+POST   /cards/{id}/unfreeze
+POST   /cards/{id}/verify-pin
+POST   /cards/{id}/request-physical
+POST   /cards/{id}/activate
+PUT    /cards/{id}/limits
+PUT    /cards/{id}/settings
+GET    /cards/{id}/transactions
+POST   /cards/{id}/digital-wallet
+POST   /cards/{id}/dispute
+POST   /cards/{id}/report-lost
+```
+
+### Dashboard (`/api/v1/dashboard/`)
+```
+GET    /dashboard/overview
+GET    /dashboard/recent-transactions?limit=10
+```
+
+### Export (`/api/v1/export/`)
+```
+GET    /export/transactions/csv     ← returns raw CSV file, not JSON
+GET    /export/transactions/json    ← returns APIResponse with JSON string in data
+POST   /export/transactions/email   ← sends email (placeholder body)
+```
+
+### Notifications (`/api/v1/notifications/`)
+```
+GET    /notifications
+PUT    /notifications/{id}/read
+PUT    /notifications/read-all
+DELETE /notifications/{id}
+GET    /notifications/preferences
+PUT    /notifications/preferences
+```
+
+### Alerts (`/api/v1/alerts/`)
+```
+GET    /alerts/preferences
+PUT    /alerts/preferences
+```
+
+---
+
+## A4. Endpoints NOT in the Live API (planned for future phases)
+
+These were mentioned in documentation but confirmed absent from the deployed API:
+
+| Endpoint | Status |
+|---|---|
+| `GET /deposits/crypto/networks` | Not deployed — use hardcoded network list |
+| `POST /disputes/transactions` | Not deployed — use `POST /cards/{id}/dispute` |
+| `GET /transactions/{id}` | No individual transaction detail endpoint |
+| WebSocket `ws://…/notifications` | Not registered — use polling |
+| `GET /users/login-history` | Model exists, no endpoint |
+| `POST /users/update-email` | Model field exists, no endpoint yet |
+| `POST /users/update-phone` | Model field exists, no endpoint yet |
+| `GET /alerts/history` | Model exists, no endpoint |
+
+---
+
+## A5. Quick Start for the Frontend Developer
+
+1. Open Swagger: `https://worldcup-orcin-chi.vercel.app/docs`
+2. Create a test user: `POST /auth/signup`
+3. Get the verification code: `GET /auth/test-verification-code?email=your@email.com`
+4. Verify email: `POST /auth/verify-email`
+5. Login: `POST /auth/login` → copy `access_token`
+6. Click "Authorize" in Swagger → paste `Bearer <token>`
+7. All protected endpoints are now testable directly in the browser
+
+The test verification code endpoint (`GET /auth/test-verification-code`) is available in the live API — use it freely during development so you don't need a real email server to test the signup flow.

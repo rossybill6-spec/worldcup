@@ -28,8 +28,12 @@ from app.models.card_limit import CardLimit
 from app.models.transaction import Transaction; from app.models.transaction_dispute import TransactionDispute
 from app.models.notification import Notification; from app.models.notification_template import NotificationTemplate
 from app.models.alert import Alert; from app.models.alert_preference import AlertPreference
-config = context.config
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+from app.models.admin import Admin; from app.models.admin_role import AdminRole
+from app.models.admin_permission import AdminPermission; from app.models.admin_session import AdminSession
+from app.models.admin_activity_log import AdminActivityLog
+from app.models.system_config import SystemConfig
+from app.models.fee_schedule import FeeSchedule; from app.models.interest_rate import InterestRate
+config = context.config; config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 if config.config_file_name is not None: fileConfig(config.config_file_name)
 target_metadata = Base.metadata
 def run_migrations_offline():

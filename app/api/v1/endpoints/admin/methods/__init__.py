@@ -1,0 +1,1 @@
+"""Admin methods config."""
