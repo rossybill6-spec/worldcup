@@ -353,3 +353,34 @@ api_router.include_router(reports_save, prefix="/admin/reports", tags=["Admin Re
 api_router.include_router(reports_schedule, prefix="/admin/reports", tags=["Admin Reports"])
 api_router.include_router(audit_list, prefix="/admin/audit", tags=["Admin Audit"])
 api_router.include_router(audit_export, prefix="/admin/audit", tags=["Admin Audit"])
+
+from app.api.v1.endpoints.admin.system.settings import router as sys_settings
+from app.api.v1.endpoints.admin.system.email_templates import router as email_temps
+from app.api.v1.endpoints.admin.system.sms_templates import router as sms_temps
+from app.api.v1.endpoints.admin.system.push_templates import router as push_temps
+from app.api.v1.endpoints.admin.system.legal import router as legal_docs
+from app.api.v1.endpoints.admin.system.api_keys import router as api_keys
+from app.api.v1.endpoints.admin.system.webhooks import router as webhooks
+from app.api.v1.endpoints.admin.system.security import router as sys_security
+from app.api.v1.endpoints.admin.system.kyc_settings import router as kyc_settings
+from app.api.v1.endpoints.admin.notifications.send import router as admin_notif_send
+from app.api.v1.endpoints.admin.notifications.templates import router as admin_notif_temps
+from app.api.v1.endpoints.admin.notifications.history import router as admin_notif_hist
+from app.api.v1.endpoints.admin.announcements.list import router as announce_list
+from app.api.v1.endpoints.admin.announcements.create import router as announce_create
+from app.api.v1.endpoints.admin.announcements.edit import router as announce_edit
+api_router.include_router(sys_settings, prefix="/admin/system", tags=["Admin System"])
+api_router.include_router(email_temps, prefix="/admin/system/email", tags=["Admin System"])
+api_router.include_router(sms_temps, prefix="/admin/system/sms", tags=["Admin System"])
+api_router.include_router(push_temps, prefix="/admin/system/push", tags=["Admin System"])
+api_router.include_router(legal_docs, prefix="/admin/system/legal", tags=["Admin System"])
+api_router.include_router(api_keys, prefix="/admin/system/api-keys", tags=["Admin System"])
+api_router.include_router(webhooks, prefix="/admin/system/webhooks", tags=["Admin System"])
+api_router.include_router(sys_security, prefix="/admin/system/security", tags=["Admin System"])
+api_router.include_router(kyc_settings, prefix="/admin/system/kyc", tags=["Admin System"])
+api_router.include_router(admin_notif_send, prefix="/admin/notifications", tags=["Admin Notifications"])
+api_router.include_router(admin_notif_temps, prefix="/admin/notifications/templates", tags=["Admin Notifications"])
+api_router.include_router(admin_notif_hist, prefix="/admin/notifications/history", tags=["Admin Notifications"])
+api_router.include_router(announce_list, prefix="/admin/announcements", tags=["Admin Announcements"])
+api_router.include_router(announce_create, prefix="/admin/announcements", tags=["Admin Announcements"])
+api_router.include_router(announce_edit, prefix="/admin/announcements", tags=["Admin Announcements"])

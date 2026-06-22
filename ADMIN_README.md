@@ -3001,3 +3001,341 @@ No user ownership check — any `card_id` can be updated by admin.
 - **Admin card issue returns full card details including PIN** — log this in the admin activity (manually, since auto-logging isn't wired) and treat the response as sensitive. Show once, do not store.
 - **Admin card cancel does not set `is_deleted`** — unlike Phase 15's user-level cancel. Cards cancelled by admin remain visible in the system-wide list with `status: "cancelled"`.
 - **No user ownership check on card freeze/cancel/limits** — any card ID works. Always source card IDs from the user detail page to ensure you're acting on the right user's card.
+
+
+---
+
+## PHASE 20 — Reports & Audit Log
+
+> Base paths:
+> - `https://worldcup-orcin-chi.vercel.app/api/v1/admin/reports/...`
+> - `https://worldcup-orcin-chi.vercel.app/api/v1/admin/audit/...`
+>
+> All Phase 20 endpoints are **fully implemented and registered** — callable right now.
+
+---
+
+### Endpoint Status
+
+| Endpoint | Status |
+|---|---|
+| `POST /admin/reports/generate` | ✅ Live — generates live data, not saved |
+| `POST /admin/reports/save` | ✅ Live — generates + saves to DB |
+| `GET /admin/reports/list` | ✅ Live — lists saved reports |
+| `POST /admin/reports/schedule` | ✅ Live — creates schedule record |
+| `GET /admin/audit/list` | ✅ Live — filterable, paginated |
+| `GET /admin/audit/export/csv` | ✅ Live — raw CSV download |
+
+> **Audit log is currently sparse** — only `"login"` actions from `admin_service.login()` are automatically logged. Approvals, rejections, user edits, and other admin actions are not yet instrumented. The log table and endpoints are fully functional; entries will accumulate as more actions are wired to logging.
+>
+> **Scheduled reports are not executed automatically** — `report_tasks.py` exists but its status is unknown. Schedules are saved to the DB but no background task runs them. Email delivery of reports is not connected.
+
+---
+
+## SECTION A — Reports
+
+### A1. Generate Report (on-demand, not saved)
+
+```
+POST /api/v1/admin/reports/generate
+```
+
+Generates a report in real time and returns the data immediately. Nothing is saved to the database.
+
+Request body:
+```json
+{
+  "report_type": "transactions",
+  "start_date": "2026-06-01",
+  "end_date": "2026-06-30",
+  "format": "json"
+}
+```
+
+- `report_type`: required — see supported types below
+- `start_date` / `end_date`: optional ISO date strings (`"YYYY-MM-DD"`) — currently not applied as filters in the service (see note below)
+- `format`: `"json"` or `"csv"` — stored on save but the generate endpoint always returns JSON
+
+**Supported `report_type` values and what they return:**
+
+| `report_type` | Fields returned |
+|---|---|
+| `users` | `total_users`, `generated_at` |
+| `transactions` | `count`, `total_volume`, `generated_at` |
+| `revenue` | `total_fees`, `generated_at` |
+| `deposits` | `count`, `total`, `generated_at` |
+| `withdrawals` | `count`, `total`, `generated_at` |
+| any other value | `generated_at` only (no data) |
+
+> **Date filters are not applied.** The `start_date` and `end_date` fields are accepted in the request body but the `generate()` service method ignores them — it counts/sums all records across all time. The date range is stored in the report record when saved, but the data itself is not date-filtered. Build the date pickers in the UI now — filtering will be wired in a future update.
+
+**Example response for `report_type: "transactions"`:**
+```json
+{
+  "success": true,
+  "message": "Report generated",
+  "data": {
+    "type": "transactions",
+    "count": 1847,
+    "total_volume": 4823920.50,
+    "generated_at": "2026-06-22T10:30:00"
+  }
+}
+```
+
+**Example response for `report_type: "revenue"`:**
+```json
+{
+  "success": true,
+  "data": {
+    "type": "revenue",
+    "total_fees": 18750.00,
+    "generated_at": "2026-06-22T10:30:00"
+  }
+}
+```
+
+**Example response for `report_type: "users"`:**
+```json
+{
+  "success": true,
+  "data": {
+    "type": "users",
+    "total_users": 1482,
+    "generated_at": "2026-06-22T10:30:00"
+  }
+}
+```
+
+---
+
+### A2. Generate and Save Report
+
+```
+POST /api/v1/admin/reports/save
+```
+
+Same request body as generate. Generates the report, saves it to the `reports` table, and returns the saved report's ID.
+
+Request body — identical to generate:
+```json
+{
+  "report_type": "deposits",
+  "start_date": "2026-06-01",
+  "end_date": "2026-06-30",
+  "format": "csv"
+}
+```
+
+Success response `data`:
+```json
+{ "id": "uuid" }
+```
+
+The report is saved with:
+- `name`: auto-generated as `"{report_type}_{start_date or 'now'}"` — e.g. `"deposits_2026-06-01"`
+- `report_type`: as submitted
+- `parameters`: the full generated data dict stored as JSON
+- `created_by`: hardcoded `"admin"` (will use actual admin ID once auth middleware is wired)
+- `file_url`: `null` — no file is generated yet, data is stored as JSON in the `parameters` column
+- `format`: as submitted (stored for reference only)
+
+After saving, retrieve the report via `GET /admin/reports/list`.
+
+---
+
+### A3. List Saved Reports
+
+```
+GET /api/v1/admin/reports/list
+```
+
+Returns all saved reports, not paginated in the current implementation.
+
+Success response `data` (array):
+```json
+[
+  {
+    "id": "uuid",
+    "name": "transactions_2026-06-01",
+    "report_type": "transactions",
+    "format": "csv",
+    "created_at": "2026-06-22T10:30:00"
+  },
+  {
+    "id": "uuid",
+    "name": "revenue_now",
+    "report_type": "revenue",
+    "format": "json",
+    "created_at": "2026-06-20T09:00:00"
+  }
+]
+```
+
+> `file_url` is not returned in the list response. There is no download endpoint for saved reports — the report data is stored in the `parameters` JSON column but no download URL is generated. A report download endpoint will be added in a future update. For now, re-generate the same report type via `POST /reports/generate` to get current data.
+
+---
+
+### A4. Schedule a Report
+
+```
+POST /api/v1/admin/reports/schedule
+```
+
+Request body:
+```json
+{
+  "report_type": "transactions",
+  "frequency": "weekly",
+  "recipients": "admin@bankapp.com,ops@bankapp.com",
+  "format": "csv"
+}
+```
+
+- `report_type`: same values as generate
+- `frequency`: `"daily"`, `"weekly"`, or `"monthly"`
+- `recipients`: comma-separated email addresses (stored as a plain string)
+- `format`: `"csv"` or `"json"` — default `"csv"`
+
+Success response `data`:
+```json
+{ "id": "uuid" }
+```
+
+The schedule is saved to `report_schedules` table with `is_active: true`. `created_by` is hardcoded `"admin"`.
+
+> **Scheduled reports do not execute automatically.** The schedule record is stored but no background worker runs it. No emails are sent. This will be activated when the task scheduler is connected. Build the schedule management UI now — mark scheduled reports as "Scheduled (pending activation)" until the system confirms delivery.
+
+There is no endpoint to list, edit, or delete schedules yet — only creation.
+
+---
+
+## SECTION B — Audit Log
+
+### B1. List Audit Log
+
+```
+GET /api/v1/admin/audit/list?page=1&per_page=50
+```
+
+Query params:
+
+| Param | Type | Description |
+|---|---|---|
+| `admin_id` | string (UUID) | Filter by a specific admin's actions |
+| `action` | string | Filter by action name (exact match) |
+| `page` | int ≥ 1 | Default 1 |
+| `per_page` | int 1–100 | Default 50 |
+
+> There is no `start_date` / `end_date` filter on the audit list endpoint in the current implementation. Date filtering will be added in a future update.
+
+Success response `data`:
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "admin_name": "Super Admin",
+      "action": "login",
+      "target_type": null,
+      "target_id": null,
+      "details": null,
+      "ip_address": "192.168.1.1",
+      "before_value": null,
+      "after_value": null,
+      "created_at": "2026-06-20T10:30:00"
+    },
+    {
+      "id": "uuid",
+      "admin_name": "Ops Admin",
+      "action": "approve_deposit",
+      "target_type": "deposit",
+      "target_id": "uuid-of-deposit",
+      "details": "Approved $1,000 ACH deposit",
+      "ip_address": "10.0.0.5",
+      "before_value": { "status": "pending" },
+      "after_value": { "status": "completed" },
+      "created_at": "2026-06-20T10:25:00"
+    }
+  ],
+  "total": 284,
+  "page": 1,
+  "per_page": 50
+}
+```
+
+**`before_value` and `after_value`** — JSON snapshots of the record state before and after the admin action. These will be populated as more actions are instrumented. Currently both are `null` on all log entries except manually created ones.
+
+**Known `action` values currently in use:**
+- `"login"` — admin login (only action currently auto-logged)
+
+**Planned `action` values (not yet logged automatically):**
+- `"approve_deposit"`, `"reject_deposit"`, `"approve_withdrawal"`, `"reject_withdrawal"`
+- `"suspend_user"`, `"activate_user"`, `"delete_user"`
+- `"kyc_approved"`, `"kyc_rejected"`
+- `"balance_adjusted"`, `"password_reset"`, `"force_logout"`
+- `"role_created"`, `"permissions_assigned"`, `"admin_created"`
+
+---
+
+### B2. Export Audit Log as CSV
+
+```
+GET /api/v1/admin/audit/export/csv
+```
+
+No query params — no filters. Exports up to **10,000 rows** (latest entries).
+
+Returns a raw CSV file download:
+- `Content-Type: text/csv`
+- `Content-Disposition: attachment; filename=audit_log.csv`
+
+CSV columns: `admin_name`, `action`, `target_type`, `target_id`, `details`, `ip_address`, `created_at`
+
+> `before_value` and `after_value` are excluded from the CSV export — they are JSON objects. Only the flat text fields are exported.
+
+```javascript
+// Trigger download
+const response = await fetch('/api/v1/admin/audit/export/csv', {
+  headers: { 'Authorization': 'Bearer ' + adminToken }
+});
+const blob = await response.blob();
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url; a.download = 'audit_log.csv'; a.click();
+URL.revokeObjectURL(url);
+```
+
+---
+
+### Phase 20 Screens to Build
+
+**Reports section:**
+- [ ] Report builder form — `report_type` dropdown + optional date range pickers
+- [ ] Report results panel — shows the generated data inline
+- [ ] Save report button — calls save endpoint, shows saved ID
+- [ ] Saved reports list — table with name, type, format, date
+- [ ] Schedule report form — type, frequency, recipients (comma-separated), format
+- [ ] Schedule list — table showing active schedules (read from DB once a list endpoint is added)
+
+**Audit log section:**
+- [ ] Audit log table — paginated, newest first
+- [ ] Filter by admin dropdown (populated from `GET /admin/admins/list`)
+- [ ] Filter by action text input (exact match)
+- [ ] Before/after value viewer — expandable JSON diff panel per row
+- [ ] Export CSV button
+
+---
+
+### Key Notes for Phase 20
+
+- **Date range filters do not work** — `start_date` and `end_date` are accepted but ignored by the service. All reports return all-time data regardless of dates entered. Build the date pickers but show a "(all time)" label next to results until filtering is fixed.
+- **5 report types are supported:** `users`, `transactions`, `revenue`, `deposits`, `withdrawals`. Any other value returns `generated_at` only. Don't show unsupported types in the UI dropdown.
+- **Saved reports have no download URL** — `file_url` is always null. There is no way to re-download a saved report. Re-generate it using the generate endpoint for current data.
+- **Schedule list endpoint does not exist** — there is no `GET /admin/reports/schedules`. Once a schedule is created, you can't list or delete them through the API yet. Store the schedule data client-side after creation or add the list endpoint to the backend.
+- **Audit log filters by `action` use exact string match** — `"login"` works, `"log"` or `"LOGIN"` won't match. Provide a dropdown of known action values rather than a free-text input.
+- **`admin_id` filter on audit log** — use the UUID from `GET /admin/admins/list`. Filter by admin to show what a specific admin has done.
+- **Audit log cannot be deleted** — there is no DELETE endpoint and no soft-delete flag on `AuditLog` model. This is intentional for compliance.
+- **CSV export always exports latest 10,000 rows** — no date or admin filter. For filtered exports, build a client-side CSV generator from the filtered list data.
+- **`before_value` and `after_value` are JSON objects** — display them as a collapsible JSON diff viewer per row. Both are `null` on most current entries.
+- **`created_by` on reports is hardcoded `"admin"`** — will be the actual admin's UUID once auth middleware is active.

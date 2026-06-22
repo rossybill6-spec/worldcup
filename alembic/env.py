@@ -5,6 +5,7 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from app.core.config import settings
 from app.models.base import Base
+# All models imported
 from app.models.user import User; from app.models.user_profile import UserProfile
 from app.models.user_session import UserSession; from app.models.user_device import UserDevice
 from app.models.user_login_history import UserLoginHistory; from app.models.user_activity_log import UserActivityLog
@@ -35,6 +36,11 @@ from app.models.system_config import SystemConfig
 from app.models.fee_schedule import FeeSchedule; from app.models.interest_rate import InterestRate
 from app.models.report import Report; from app.models.report_schedule import ReportSchedule
 from app.models.audit_log import AuditLog
+from app.models.system_setting import SystemSetting; from app.models.email_template import EmailTemplate
+from app.models.sms_template import SMSTemplate; from app.models.push_template import PushTemplate
+from app.models.legal_document import LegalDocument; from app.models.api_key import ApiKey
+from app.models.webhook import Webhook; from app.models.announcement import Announcement
+from app.models.whatsapp_group import WhatsAppGroup
 config = context.config; config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 if config.config_file_name is not None: fileConfig(config.config_file_name)
 target_metadata = Base.metadata
