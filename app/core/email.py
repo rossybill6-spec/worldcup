@@ -1,15 +1,16 @@
 """
 Email sending utilities using SMTP.
-Supports both sync and async sending with Jinja2 templates.
 """
 
 from typing import List, Optional
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import aiosmtplib
-from jinja2 import Environment, BaseLoader
+import logging
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 async def send_email(
@@ -20,22 +21,9 @@ async def send_email(
     cc: Optional[List[str]] = None,
     bcc: Optional[List[str]] = None,
 ) -> bool:
-    """
-    Send an email asynchronously.
-    
-    Args:
-        to_email: Recipient email address
-        subject: Email subject
-        body: Plain text body
-        html_body: Optional HTML body
-        cc: Optional CC recipients
-        bcc: Optional BCC recipients
-    
-    Returns:
-        True if sent successfully, False otherwise
-    """
+    """Send an email asynchronously. Returns True if sent successfully."""
     if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
-        print(f"⚠️  Email not configured. Would send to {to_email}: {subject}")
+        logger.warning(f"Email not configured. Would send to {to_email}: {subject}")
         return False
     
     try:
@@ -61,14 +49,16 @@ async def send_email(
             password=settings.SMTP_PASSWORD,
             start_tls=True,
         )
+        logger.info(f"Email sent to {to_email}: {subject}")
         return True
     except Exception as e:
-        print(f"❌ Email send failed: {e}")
+        logger.error(f"Email send failed to {to_email}: {e}")
         return False
 
 
 def render_template(template_string: str, context: dict) -> str:
     """Render a Jinja2 template string with context."""
+    from jinja2 import Environment, BaseLoader
     env = Environment(loader=BaseLoader())
     template = env.from_string(template_string)
     return template.render(**context)
